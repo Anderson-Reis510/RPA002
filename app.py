@@ -308,16 +308,16 @@ def Iniciar_GUI():
         if len(texto) > 5:
             texto = f"{texto[:5]}/{texto[5:]}"
 
-        texto = texto[:10]  # Limita a 10 caracteres (dd/mm/yyyy)
+        texto = texto[:10]  
 
         # Valida e corrige a data
         if len(texto) == 10:
             try:
-                data = datetime.strptime(texto, '%d/%m/%Y')  # Tenta converter
+                data = datetime.strptime(texto, '%d/%m/%Y') 
             except ValueError:
                 dia, mes, ano = map(int, texto.split('/'))
                 try:
-                    data = datetime(ano, mes, min(dia, 28))  # Evita dias inválidos (ex: 30/02/2024 → 28/02/2024)
+                    data = datetime(ano, mes, min(dia, 28))  
                     texto = data.strftime('%d/%m/%Y')
                 except ValueError:
                     texto = ''  # Reseta caso ainda seja inválido
@@ -422,13 +422,18 @@ def Iniciar_GUI():
 
             match = re.search(r"Nr\.\s*do\s*Documento.*?(\d{7,10})", texto, re.IGNORECASE | re.DOTALL)
             if match:
-                return match.group(1)
+                num_str = match.group(1)
+                # Verifica se num_str contém apenas dígitos
+                if num_str.isdigit():
+                    return int(num_str)
+                else:
+                    return None
             else:
                 return None
         except Exception as e:
             print(f"Erro ao extrair número do documento: {e}")
             return None
-
+        
     # Função para renomear os boletos na pasta
     def renomear_boletos_pasta(pasta):
         documentos_parcelas = {}
@@ -572,7 +577,6 @@ def Iniciar_GUI():
     treeview.column('Email', width=150)
     treeview.column('Arquivos', width=200)
 
-
     # Exibe o Treeview
     treeview.grid(row=0, column=0, sticky="nsew")
 
@@ -653,12 +657,18 @@ def Iniciar_GUI():
             treeview.column(col, width=200, anchor="w")
 
         arquivos_por_titulo = {}
-        arquivos_pasta = [arquivo for arquivo in os.listdir(pasta_pedidos)]
+        # Filtra apenas arquivos PDF
+        arquivos_pasta = [arquivo for arquivo in os.listdir(pasta_pedidos) if arquivo.lower().endswith('.pdf')]
         
         for arquivo in arquivos_pasta:
+            # Verifica se o arquivo possui o padrão esperado
+            if not arquivo.startswith("Stik.") or '-' not in arquivo:
+                print(f"Padrão de arquivo inválido para {arquivo}")
+                continue
             try:
-                numero_documento = str(int(arquivo.split('-')[0].replace("Stik.", "").split('/')[0]))
-                parcela = arquivo.split('-')[1].split('.')[0]  # Obtém o número da parcela
+                parte_inicial = arquivo.split('-')[0].replace("Stik.", "")
+                numero_documento = str(int(parte_inicial))
+                parcela = arquivo.split('-')[1].split('.')[0] 
                 chave = f"{numero_documento}/{parcela}"  # Gera a chave no formato Título/Parcela
                 arquivos_por_titulo[chave] = arquivo  # Salva somente um arquivo por chave
             except Exception as e:
@@ -667,7 +677,6 @@ def Iniciar_GUI():
 
         for linha in dados:
             titulo = linha[0]
-
             try:
                 numero_titulo = str(int(titulo.split('.')[1].split('/')[0]))
                 parcela_titulo = titulo.split('/')[-1]  # Obtém a parcela do título
@@ -680,7 +689,6 @@ def Iniciar_GUI():
             linha.append(arquivo)  # Adiciona apenas um arquivo correspondente
 
             treeview.insert('', 'end', values=linha)
-
 
     def on_item_click(event):
         item_id = treeview.selection()[0]
@@ -697,46 +705,43 @@ def Iniciar_GUI():
             messagebox.showerror("Erro", "Nenhum pedido selecionado!")
             return
         
-        pedidos_dict = {}  # Dicionário para agrupar títulos por pedido
+        pedidos_dict = {}  # Dicionário para agrupar títulos pelo número base do pedido
         
         for item_id in selecao:
             valores = treeview.item(item_id, "values")
-
-            if not valores or len(valores) < 5:
+            
+            if not valores or len(valores) < 6:
                 messagebox.showerror("Erro", "Dados do pedido estão incompletos!")
-                return
+                continue
             
-            numero_documento = valores[0]  # Título
-            cnpj_cpf = valores[2]          # CNPJ/CPF
-            cobrador = valores[3]          # Agente cobrador
-            email = valores[4]             # E-mail
-            
-            if not cnpj_cpf or cnpj_cpf.strip().lower() == "none":
-                messagebox.showerror("Erro", f"Nenhum CNPJ ou CPF foi informado para o pedido {numero_documento}")
+            numero_documento = valores[0]  
+            numero_base = numero_documento.rsplit("/", 1)[0]  # Remove a parte da parcela → "Stik.15385"
+            cnpj_cpf = valores[2]  
+            cobrador = valores[3]  
+            email = valores[5]  
+            arquivos_str = valores[6]
+
+            if not cnpj_cpf or cnpj_cpf.strip() == "none":
+                messagebox.showerror("Erro", f"Nenhum CPF ou CNPJ foi informado para o pedido {numero_documento}")
                 continue
 
             if not cobrador or cobrador.strip().lower() == "none":
-                messagebox.showerror("Erro", f"Nenhum cobrador foi informado para o pedido {numero_documento}")
-                continue
+                messagebox.showerror("Erro:" f"Nenhum Agente Cobrador foi informado para o pedido {numero_documento}")        
 
             if not email or email.strip().lower() == "none":
                 messagebox.showerror("Erro", f"Nenhum e-mail informado para o pedido {numero_documento}")
                 continue
 
-            boletos_relacionados = [
-                os.path.join(pasta_pedidos, f) for f in os.listdir(pasta_pedidos)
-                if f.startswith(numero_documento) and f.endswith(".pdf")
-            ]
-
-            if not boletos_relacionados:
+            if arquivos_str and arquivos_str != "Sem Arquivos":
+                boletos_relacionados = [os.path.join(pasta_pedidos, nome.strip()) for nome in arquivos_str.split(",")]
+            else:
                 messagebox.showerror("Erro", f"Nenhum boleto encontrado para o pedido {numero_documento}!")
                 continue
             
-            # Se o pedido já estiver no dicionário, adiciona os boletos a ele
-            if numero_documento in pedidos_dict:
-                pedidos_dict[numero_documento]["boletos"].extend(boletos_relacionados)
+            if numero_base in pedidos_dict:
+                pedidos_dict[numero_base]["boletos"].extend(boletos_relacionados)
             else:
-                pedidos_dict[numero_documento] = {
+                pedidos_dict[numero_base] = {
                     "email": email,
                     "boletos": boletos_relacionados
                 }
@@ -745,50 +750,53 @@ def Iniciar_GUI():
             messagebox.showerror("Erro", "Nenhum pedido válido foi encontrado para envio de e-mail!")
             return
         
-        # Exibir confirmação dos e-mails que serão enviados
         lista_emails = "\n".join([f"Pedido {pedido} → {dados['email']}" for pedido, dados in pedidos_dict.items()])
         resposta = messagebox.askyesno("Confirmação", f"Os seguintes pedidos serão enviados:\n\n{lista_emails}\n\nDeseja continuar?")
         if not resposta:
             messagebox.showinfo("Cancelado", "O envio dos e-mails foi cancelado.")
             return
 
-        # Configurações do e-mail
         remetente = "comunicacao@stik.com.br"
         senha = "Mailstk400"
 
-        # Enviar os e-mails individualmente por pedido (um e-mail por pedido)
-        for numero_documento, dados in pedidos_dict.items():
-            email = dados["email"]
-            boletos_relacionados = list(set(dados["boletos"]))  # Remover boletos duplicados
-
+        for numero_base, dados in pedidos_dict.items():
+            email_destino = dados["email"]
+            boletos_relacionados = list(set(dados["boletos"]))  # Remove duplicatas
+            
             try:
                 msg = MIMEMultipart()
                 msg["From"] = remetente
-                msg["To"] = email
-                msg["Subject"] = f"Boletos - {numero_documento} / Stik Elásticos"
+                msg["To"] = email_destino
+                msg["Subject"] = f"Boletos - {numero_base} / Stik Elásticos"
 
-                corpo = f"""Prezado(a),\n\nSegue em anexo os boletos do pedido {numero_documento}.\n\nAtenciosamente,"""
+                corpo = f"""Prezado(a),\n
+    Segue em anexo a 2ª via dos boletos e complementares referentes ao pedido {numero_base}.\n
+    Por gentileza, conferir título e confirmar o recebimento.\n\nAtenciosamente,\n"""
                 msg.attach(MIMEText(corpo, "plain"))
 
                 for boleto in boletos_relacionados:
-                    with open(boleto, "rb") as arquivo_pdf:
-                        parte_pdf = MIMEBase("application", "octet-stream")
-                        parte_pdf.set_payload(arquivo_pdf.read())
-                        encoders.encode_base64(parte_pdf)
-                        parte_pdf.add_header("Content-Disposition", f"attachment; filename={os.path.basename(boleto)}")
-                        msg.attach(parte_pdf)
+                    try:
+                        with open(boleto, "rb") as arquivo_pdf:
+                            parte_pdf = MIMEBase("application", "octet-stream")
+                            parte_pdf.set_payload(arquivo_pdf.read())
+                            encoders.encode_base64(parte_pdf)
+                            parte_pdf.add_header("Content-Disposition", f"attachment; filename={os.path.basename(boleto)}")
+                            msg.attach(parte_pdf)
+                    except Exception as e:
+                        messagebox.showerror("Erro", f"Erro ao anexar o arquivo {os.path.basename(boleto)} para o pedido {numero_base}: {str(e)}")
+                        continue
 
                 with smtplib.SMTP("smtp.stik.com.br", 587) as servidor:
                     servidor.starttls()
                     servidor.login(remetente, senha)
-                    servidor.sendmail(remetente, email, msg.as_string())
+                    servidor.sendmail(remetente, email_destino, msg.as_string())
 
-                messagebox.showinfo("Sucesso", f"E-mail enviado com sucesso para {email} (Pedido {numero_documento})")
+                messagebox.showinfo("Sucesso", f"E-mail enviado com sucesso para {email_destino} (Pedido {numero_base})")
 
             except smtplib.SMTPException as e:
-                messagebox.showerror("Erro SMTP", f"Erro ao conectar ao servidor de e-mail para o pedido {numero_documento}: {str(e)}")
+                messagebox.showerror("Erro SMTP", f"Erro ao conectar ao servidor de e-mail para o pedido {numero_base}: {str(e)}")
             except Exception as e:
-                messagebox.showerror("Erro", f"Erro ao enviar e-mail para o pedido {numero_documento}: {str(e)}")
+                messagebox.showerror("Erro", f"Erro ao enviar e-mail para o pedido {numero_base}:{str(e)}")
 
     # Função para obter boletos relacionados ao pedido
     def obter_boletos_selecionados():
@@ -821,7 +829,7 @@ def Iniciar_GUI():
         
         if arquivos:
             # Chama a função de envio de e-mail com os boletos relacionados
-            enviar_email_com_anexo(arquivos)
+            enviar_email_com_anexo(arquivos, pasta_pedidos, None, None)
         else:
             messagebox.showwarning("Aviso", f"Nenhum PDF encontrado para o título: {titulo}")
 
@@ -850,8 +858,8 @@ def Iniciar_GUI():
                 data_final_sql
             )
 
-    # button_enviar_pedidos = ctk.CTkButton(frame_button, text="Enviar Pedidos", fg_color="#03346E", command=enviar_pedidos)
-    # button_enviar_pedidos.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+    button_enviar_pedidos = ctk.CTkButton(frame_button, text="Enviar Pedidos", fg_color="#03346E", command=enviar_pedidos)
+    button_enviar_pedidos.grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
     scrollbar_y = ttk.Scrollbar(frame, orient="vertical", command=treeview.yview)
     treeview.configure(yscrollcommand=scrollbar_y.set)
